@@ -56,6 +56,10 @@ def download_trimmed(filename):
     """Serve the trimmed file for download."""
     return send_from_directory(TRIMMED_FOLDER, filename, as_attachment=True)
 
+@app.route('/')
+def home():
+    return "Welcome to the Trim Audio Service! Use the /upload and /trim endpoints for functionality."
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
 
