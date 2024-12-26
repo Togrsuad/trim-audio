@@ -2,3 +2,4 @@ Flask
 pydub
 ffmpeg-python
 gunicorn
+flask-cors

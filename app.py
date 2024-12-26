@@ -1,61 +1,62 @@
 import os
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
 from pydub import AudioSegment
-import io
 
 app = Flask(__name__)
-UPLOAD_FOLDER = 'uploads'
-OUTPUT_FOLDER = 'outputs'
+CORS(app)  # Enable CORS for all routes
 
-# Ensure folders exist
+# Configuration
+UPLOAD_FOLDER = "uploads"
+TRIMMED_FOLDER = "trimmed"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+os.makedirs(TRIMMED_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB limit
 
-@app.route('/')
+@app.route("/")
 def home():
-    return "Welcome to Trim Audio! The server is running successfully."
+    return jsonify({"message": "Welcome to the Trim Audio API!"})
 
-@app.route('/trim', methods=['POST'])
-def trim_audio():
+@app.route("/upload", methods=["POST"])
+def upload_audio():
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    audio_file = request.files["file"]
+    if audio_file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
+
     try:
-        # Check if a file was uploaded
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], audio_file.filename)
+        audio_file.save(file_path)
+        return jsonify({"file_path": file_path})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-        file = request.files['file']
+@app.route("/trim", methods=["POST"])
+def trim_audio():
+    data = request.json
+    file_path = data.get("file_path")
+    start_time = data.get("start_time")
+    end_time = data.get("end_time")
 
-        # Ensure the file has a valid filename
-        if file.filename == '':
-            return jsonify({'error': 'No selected file'}), 400
+    if not file_path or start_time is None or end_time is None:
+        return jsonify({"error": "Missing parameters"}), 400
 
-        # Save the uploaded file to the UPLOAD_FOLDER
-        file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-        file.save(file_path)
-
-        # Extract start and end times from the request
-        try:
-            start_time = int(request.form.get('start_time', 0))
-            end_time = int(request.form.get('end_time', 0))
-        except ValueError:
-            return jsonify({'error': 'Invalid time format. Please provide integers for start_time and end_time.'}), 400
-
-        if start_time >= end_time:
-            return jsonify({'error': 'start_time must be less than end_time'}), 400
-
-        # Load the audio file and trim it
+    try:
         audio = AudioSegment.from_file(file_path)
         trimmed_audio = audio[start_time * 1000:end_time * 1000]
-
-        # Save the trimmed audio to the OUTPUT_FOLDER
-        output_path = os.path.join(OUTPUT_FOLDER, f'trimmed_{file.filename}')
-        trimmed_audio.export(output_path, format="mp3")
-
-        # Send the trimmed audio file back to the client
-        return send_file(output_path, as_attachment=True)
-
+        trimmed_file_name = f"trimmed_{os.path.basename(file_path)}"
+        trimmed_file_path = os.path.join(TRIMMED_FOLDER, trimmed_file_name)
+        trimmed_audio.export(trimmed_file_path, format="mp3")
+        return jsonify({"trimmed_file_path": trimmed_file_path})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+@app.route("/trimmed/<filename>", methods=["GET"])
+def download_file(filename):
+    return send_from_directory(TRIMMED_FOLDER, filename, as_attachment=True)
+
+if __name__ == "__main__":
+    app.run(debug=True)
